@@ -1,5 +1,11 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { statePath, STRATEGY_FILE } from "../constants.js";
+import {
+  DEFAULT_SESSION_ID,
+  STRATEGY_FILE,
+  statePath,
+  sessionPath,
+} from "../constants.js";
+import { ensureSessionDirs, shouldUseLegacyFallback } from "./session.js";
 import type { Strategy, StrategyMeta } from "../types.js";
 
 const FRONT_MATTER_RE = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
@@ -50,12 +56,23 @@ function serializeFrontMatter(meta: StrategyMeta, content: string): string {
   ].join("\n");
 }
 
-export async function readStrategy(cwd: string): Promise<Strategy | null> {
+export async function readStrategy(cwd: string, sessionId = DEFAULT_SESSION_ID): Promise<Strategy | null> {
+  // Prefer session-scoped strategy.
   try {
-    const raw = await readFile(statePath(cwd, STRATEGY_FILE), "utf-8");
+    const raw = await readFile(sessionPath(cwd, sessionId, STRATEGY_FILE), "utf-8");
     return parseFrontMatter(raw);
   } catch {
-    return null;
+    // Fallback to legacy repo-global strategy only before session layout exists.
+    if (!(await shouldUseLegacyFallback(cwd, sessionId))) {
+      return null;
+    }
+
+    try {
+      const raw = await readFile(statePath(cwd, STRATEGY_FILE), "utf-8");
+      return parseFrontMatter(raw);
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -63,19 +80,22 @@ export async function writeStrategy(
   cwd: string,
   content: string,
   meta: StrategyMeta,
+  sessionId = DEFAULT_SESSION_ID,
 ): Promise<void> {
-  await writeFile(statePath(cwd, STRATEGY_FILE), serializeFrontMatter(meta, content), "utf-8");
+  await ensureSessionDirs(cwd, sessionId);
+  await writeFile(sessionPath(cwd, sessionId, STRATEGY_FILE), serializeFrontMatter(meta, content), "utf-8");
 }
 
 export async function updateStrategy(
   cwd: string,
   newContent: string,
+  sessionId = DEFAULT_SESSION_ID,
 ): Promise<StrategyMeta> {
-  const existing = await readStrategy(cwd);
+  const existing = await readStrategy(cwd, sessionId);
   const meta: StrategyMeta = existing
     ? { ...existing.meta, revision: existing.meta.revision + 1 }
     : { seed: "unknown", initializedAt: new Date().toISOString(), revision: 1 };
 
-  await writeStrategy(cwd, newContent, meta);
+  await writeStrategy(cwd, newContent, meta, sessionId);
   return meta;
 }

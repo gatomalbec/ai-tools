@@ -5,7 +5,8 @@ import { buildObservation, renderObservation } from "./src/observation.js";
 import { registerTools } from "./src/tools.js";
 import { initRlm, listSeeds } from "./src/init.js";
 import { appendLog } from "./src/state/log.js";
-import { statePath, LOOP_FILE, STATE_SUBDIR, DEFAULT_MAX_ITERATIONS } from "./src/constants.js";
+import { resolveSessionId, ensureSessionDirs, shouldUseLegacyFallback } from "./src/state/session.js";
+import { sessionPath, statePath, LOOP_FILE, STATE_SUBDIR, DEFAULT_MAX_ITERATIONS } from "./src/constants.js";
 import type { ExecFn, LoopState } from "./src/types.js";
 
 /** Shell exec helper — wraps execFile into the ExecFn signature */
@@ -22,18 +23,33 @@ function createExec(): ExecFn {
     });
 }
 
-async function readLoopState(cwd: string): Promise<LoopState | null> {
+async function readLoopState(cwd: string, sessionId: string): Promise<LoopState | null> {
   try {
-    const raw = await readFile(statePath(cwd, STATE_SUBDIR, LOOP_FILE), "utf-8");
+    const raw = await readFile(sessionPath(cwd, sessionId, STATE_SUBDIR, LOOP_FILE), "utf-8");
     return JSON.parse(raw) as LoopState;
   } catch {
-    return null;
+    if (!(await shouldUseLegacyFallback(cwd, sessionId))) {
+      return null;
+    }
+
+    try {
+      // Backward compatibility: legacy repo-global loop state.
+      const raw = await readFile(statePath(cwd, STATE_SUBDIR, LOOP_FILE), "utf-8");
+      return JSON.parse(raw) as LoopState;
+    } catch {
+      return null;
+    }
   }
 }
 
-async function writeLoopState(cwd: string, state: LoopState): Promise<void> {
+async function writeLoopState(cwd: string, sessionId: string, state: LoopState): Promise<void> {
   const { writeFile } = await import("node:fs/promises");
-  await writeFile(statePath(cwd, STATE_SUBDIR, LOOP_FILE), JSON.stringify(state, null, 2), "utf-8");
+  await ensureSessionDirs(cwd, sessionId);
+  await writeFile(
+    sessionPath(cwd, sessionId, STATE_SUBDIR, LOOP_FILE),
+    JSON.stringify(state, null, 2),
+    "utf-8",
+  );
 }
 
 export default function rlmExtension(pi: ExtensionAPI) {
@@ -74,11 +90,11 @@ export default function rlmExtension(pi: ExtensionAPI) {
 
   let currentCwd = process.cwd();
 
-  pi.on("session_start", async (event, ctx) => {
+  pi.on("session_start", async (_event, ctx) => {
     currentCwd = ctx.cwd;
   });
 
-  pi.on("before_agent_start", async (event, ctx) => {
+  pi.on("before_agent_start", async (_event, ctx) => {
     currentCwd = ctx.cwd;
   });
 
@@ -102,7 +118,7 @@ export default function rlmExtension(pi: ExtensionAPI) {
         seed = parts[seedIdx + 1];
       }
 
-      // If no seed specified and multiple available, list them
+      // If no seed specified and multiple available, list them.
       if (!seed && !force) {
         const seeds = await listSeeds();
         if (seeds.length > 1) {
@@ -116,17 +132,25 @@ export default function rlmExtension(pi: ExtensionAPI) {
         }
       }
 
-      const result = await initRlm(ctx.cwd, { seed, force });
+      const sessionId = await resolveSessionId(exec, ctx.cwd);
+      const result = await initRlm(ctx.cwd, { seed, force, sessionId });
 
       if (ctx.hasUI) {
         ctx.ui.notify(result.message, result.created ? "info" : "warning");
       }
 
       if (result.created) {
-        pi.sendUserMessage(
-          `RLM initialized with seed "${result.seedUsed}". ` +
-            `Read the strategy at .tdarlm/strategy.md and follow it.`,
-        );
+        if (result.migrated) {
+          pi.sendUserMessage(
+            `RLM session "${result.sessionId}" initialized by migrating legacy state. ` +
+              `Read the strategy at .tdarlm/sessions/${result.sessionId}/strategy.md and follow it.`,
+          );
+        } else {
+          pi.sendUserMessage(
+            `RLM initialized for session "${result.sessionId}" with seed "${result.seedUsed}". ` +
+              `Read the strategy at .tdarlm/sessions/${result.sessionId}/strategy.md and follow it.`,
+          );
+        }
       }
     },
   });
@@ -172,13 +196,14 @@ export default function rlmExtension(pi: ExtensionAPI) {
 
   pi.on("agent_end", async (_event, ctx) => {
     try {
-      const loop = await readLoopState(ctx.cwd);
+      const sessionId = await resolveSessionId(exec, ctx.cwd);
+      const loop = await readLoopState(ctx.cwd, sessionId);
       if (!loop || !loop.enabled) return;
 
       if (loop.remaining <= 0) {
-        await appendLog(ctx.cwd, "action", "Auto-continue exhausted — stopping.");
+        await appendLog(ctx.cwd, "action", "Auto-continue exhausted — stopping.", sessionId);
         loop.enabled = false;
-        await writeLoopState(ctx.cwd, loop);
+        await writeLoopState(ctx.cwd, sessionId, loop);
         return;
       }
 
@@ -189,13 +214,14 @@ export default function rlmExtension(pi: ExtensionAPI) {
 
       // Decrement and continue
       loop.remaining = Math.max(0, loop.remaining - 1);
-      await writeLoopState(ctx.cwd, loop);
+      await writeLoopState(ctx.cwd, sessionId, loop);
 
       const iterationNum = loop.max - loop.remaining;
       await appendLog(
         ctx.cwd,
         "action",
         `Auto-continue iteration ${iterationNum}/${loop.max} (${loop.remaining} remaining)`,
+        sessionId,
       );
 
       pi.sendUserMessage(

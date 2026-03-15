@@ -39,6 +39,7 @@ export interface LoopState {
 
 /** The bounded observation O constructed from state X */
 export interface Observation {
+  sessionId: string;
   strategy: string;
   taskContext: string;
   workspaceSummary: string;

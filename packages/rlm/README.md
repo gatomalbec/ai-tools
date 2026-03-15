@@ -27,10 +27,10 @@ X = { workspace, strategy, tasks, log, state_files }
 | Component | Location | Role |
 |-----------|----------|------|
 | **Workspace** | Repo files | The project itself — code, configs, artifacts |
-| **Strategy** | `.tdarlm/strategy.md` | Reasoning policy that governs the agent's approach. Seeded from a template at init time. By default immutable; optionally mutable (see below) |
+| **Strategy** | `.tdarlm/sessions/<session-id>/strategy.md` | Reasoning policy that governs the agent's approach. Seeded from a template at init time. By default immutable; optionally mutable (see below) |
 | **Tasks** | `.todos/` (via [`td`](https://github.com/marcus/td)) | Task decomposition and tracking. The agent queries `td` for current task state |
-| **Log** | `.tdarlm/log.md` | Timestamped entries: observations, actions, reflections, errors. Provides memory across context windows |
-| **State files** | `.tdarlm/state/` | Arbitrary persistent intermediate data (e.g., `orient.md`, `dependency-graph.json`) |
+| **Log** | `.tdarlm/sessions/<session-id>/log.md` | Timestamped entries: observations, actions, reflections, errors. Provides memory across context windows |
+| **State files** | `.tdarlm/sessions/<session-id>/state/` | Arbitrary persistent intermediate data (e.g., `orient.md`, `dependency-graph.json`) |
 
 Each component serves a distinct function in the recursive loop:
 - **Strategy** defines *what to do and how* — the agent's reasoning policy for the current project.
@@ -74,7 +74,7 @@ mkdir -p ~/.tdarlm/strategies
 cp strategies/program_idea_to_impl.md ~/.tdarlm/strategies/
 ```
 
-The seed is a template. `/rlm-init` copies it into `repo/.tdarlm/strategy.md` for that project.
+The seed is a template. `/rlm-init` copies it into `repo/.tdarlm/sessions/<session-id>/strategy.md` for that project and session.
 
 ## Usage
 
@@ -85,6 +85,8 @@ In pi-agent:
 /rlm-init --seed bug_investigation  # Use a specific seed
 /rlm-init --force                   # Reinitialize (overwrites existing)
 ```
+
+`rlm` resolves the active `td` session (`td status --json` / `td usage --json`) and scopes state reads/writes to that session. If legacy repo-global files (`.tdarlm/strategy.md`, `.tdarlm/log.md`, `.tdarlm/state/*`) exist, `/rlm-init` migrates them into the active session directory.
 
 ### CLI flags
 
@@ -101,8 +103,8 @@ In pi-agent:
 | Tool | Description |
 |------|-------------|
 | `rlm_read_strategy` | Read the current reasoning strategy with metadata |
-| `rlm_read_log` | Read bounded log entries with optional level filtering |
-| `rlm_read_state` | Read a named state file from `.tdarlm/state/` |
+| `rlm_read_log` | Read bounded log entries with optional filtering by level |
+| `rlm_read_state` | Read a named state file from `.tdarlm/sessions/<session-id>/state/` |
 | `rlm_task_query` | Query `td` for task status, usage context, or specific issues |
 | `rlm_update_strategy` | Update the strategy (requires a reason; blocked when `--rlm-fixed-strategy`) |
 | `rlm_log` | Append an observation/action/reflection/error to the log |
@@ -124,10 +126,12 @@ After each agent loop, the extension decrements `remaining` and injects a contin
 ```
 repo/
   .tdarlm/
-    strategy.md         # Reasoning policy (read-only by default)
-    log.md              # Timestamped log entries
-    state/              # Named state files (orient.md, loop.json, etc.)
-  .todos/               # td task state (separate system)
+    sessions/
+      <session-id>/
+        strategy.md       # Reasoning policy (read-only by default)
+        log.md            # Timestamped log entries
+        state/            # Named state files (orient.md, loop.json, etc.)
+  .todos/                 # td task state (separate system)
 ```
 
 ## Writing seed strategies

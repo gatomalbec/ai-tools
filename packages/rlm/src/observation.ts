@@ -4,6 +4,7 @@ import { readLogTail } from "./state/log.js";
 import { getTaskContext } from "./state/task.js";
 import { getGitSummary, getRecentFiles, formatWorkspaceSummary } from "./state/workspace.js";
 import { listStateFiles } from "./state/store.js";
+import { resolveSessionId } from "./state/session.js";
 import type { ExecFn, Observation } from "./types.js";
 
 /**
@@ -13,17 +14,20 @@ import type { ExecFn, Observation } from "./types.js";
  * Each component is read in parallel and bounded independently.
  */
 export async function buildObservation(cwd: string, exec: ExecFn): Promise<Observation> {
+  const sessionId = await resolveSessionId(exec, cwd);
+
   const [strategy, taskContext, gitSummary, recentFiles, logEntries, stateFiles] =
     await Promise.all([
-      readStrategy(cwd),
+      readStrategy(cwd, sessionId),
       getTaskContext(exec, cwd),
       getGitSummary(exec, cwd),
       getRecentFiles(exec, cwd),
-      readLogTail(cwd, OBS_LOG_TAIL),
-      listStateFiles(cwd),
+      readLogTail(cwd, OBS_LOG_TAIL, undefined, sessionId),
+      listStateFiles(cwd, sessionId),
     ]);
 
   return {
+    sessionId,
     strategy: strategy?.content ?? "(no strategy initialized — run /rlm-init)",
     taskContext,
     workspaceSummary: formatWorkspaceSummary(gitSummary, recentFiles),
@@ -40,6 +44,9 @@ export async function buildObservation(cwd: string, exec: ExecFn): Promise<Obser
  */
 export function renderObservation(obs: Observation): string {
   return `## RLM State Observation
+
+### Session
+${obs.sessionId}
 
 ### Strategy
 ${obs.strategy}
