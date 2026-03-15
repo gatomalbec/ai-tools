@@ -82,7 +82,7 @@ mkdir -p ~/.tdarlm/strategies
 cp strategies/program_idea_to_impl.md ~/.tdarlm/strategies/
 ```
 
-The seed is a template. `/rlm-init` copies it into `repo/.tdarlm/sessions/<session-id>/strategy.md` for that project and session.
+The seed is a template. `/rlm-init` copies it into `repo/.tdarlm/sessions/<session-id>/strategy.md` for that project and session, and scaffolds `state/requirements.json` + `state/traceability.md` when missing.
 
 ## Usage
 

@@ -128,3 +128,21 @@ test("bootstrap compatibility: same session can still see legacy fallback after 
   assert.equal(await shouldUseLegacyFallback(cwd, "ses_b"), false);
   assert.equal(await readStrategy(cwd, "ses_b"), null);
 });
+
+test("/rlm-init creates requirements scaffold files", async () => {
+  const cwd = await makeTempRepo("rlm-test-req-scaffold-");
+
+  const result = await initRlm(cwd, { sessionId: "ses_req" });
+  assert.equal(result.created, true);
+
+  const reqRaw = await readStateFile(cwd, "requirements.json", "ses_req");
+  assert.ok(reqRaw);
+
+  const req = JSON.parse(reqRaw!);
+  assert.ok(Array.isArray(req.requirements));
+  assert.ok(Array.isArray(req.questions));
+  assert.ok(Array.isArray(req.assumptions));
+
+  const trace = await readStateFile(cwd, "traceability.md", "ses_req");
+  assert.ok(trace?.includes("Requirement Traceability"));
+});

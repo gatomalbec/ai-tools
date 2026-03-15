@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, copyFile, stat } from "node:fs/promises";
+import { mkdir, readFile, writeFile, readdir, copyFile, stat } from "node:fs/promises";
 import path from "node:path";
 import {
   stateDir,
@@ -31,6 +31,25 @@ const DEFAULT_SEED = `# Default Strategy
 - Prefer small, verifiable changes
 - Log decisions and their reasoning
 - When stuck, reflect and revise strategy
+`;
+
+const DEFAULT_REQUIREMENTS_JSON = {
+  requirements: [],
+  questions: [],
+  assumptions: [],
+  settings: {
+    assumptionBudget: 3,
+    blockOnCriticalOpen: true,
+  },
+};
+
+const DEFAULT_TRACEABILITY_MD = `# Requirement Traceability
+
+Map each requirement to at least one task and one verification check.
+
+| Requirement | Task(s) | Verification |
+|---|---|---|
+| REQ-001 | (task-id) | (command/test/assertion) |
 `;
 
 export interface InitResult {
@@ -112,6 +131,19 @@ async function migrateLegacyState(cwd: string, sessionId: string): Promise<boole
   return migrated;
 }
 
+async function ensureRequirementsScaffold(cwd: string, sessionId: string): Promise<void> {
+  const reqPath = sessionPath(cwd, sessionId, STATE_SUBDIR, "requirements.json");
+  if (!(await pathExists(reqPath))) {
+    await mkdir(path.dirname(reqPath), { recursive: true });
+    await writeFile(reqPath, JSON.stringify(DEFAULT_REQUIREMENTS_JSON, null, 2) + "\n", "utf-8");
+  }
+
+  const tracePath = sessionPath(cwd, sessionId, STATE_SUBDIR, "traceability.md");
+  if (!(await pathExists(tracePath))) {
+    await writeFile(tracePath, DEFAULT_TRACEABILITY_MD, "utf-8");
+  }
+}
+
 /**
  * Initialize .tdarlm state for a specific session.
  *
@@ -150,6 +182,7 @@ export async function initRlm(
   if (!hasSessionStrategy && !options.seed && !options.force) {
     const migrated = await migrateLegacyState(cwd, sessionId);
     if (migrated) {
+      await ensureRequirementsScaffold(cwd, sessionId);
       await appendLog(
         cwd,
         "action",
@@ -162,7 +195,7 @@ export async function initRlm(
         migrated: true,
         sessionId,
         seedUsed: "legacy",
-        message: `Migrated legacy .tdarlm state into session "${sessionId}".`,
+        message: `Migrated legacy .tdarlm state into session "${sessionId}" (requirements scaffold ensured).`,
       };
     }
   }
@@ -213,8 +246,9 @@ export async function initRlm(
   };
   await writeStrategy(cwd, seedContent, meta, sessionId);
 
-  // Initialize log.
+  // Initialize log and requirements scaffolding.
   await initLog(cwd, sessionId);
+  await ensureRequirementsScaffold(cwd, sessionId);
   await appendLog(cwd, "action", `Initialized RLM with seed: ${seedName}`, sessionId);
 
   return {
@@ -222,6 +256,6 @@ export async function initRlm(
     migrated: false,
     sessionId,
     seedUsed: seedName,
-    message: `Initialized .tdarlm session "${sessionId}" with seed "${seedName}"`,
+    message: `Initialized .tdarlm session "${sessionId}" with seed "${seedName}" (requirements scaffold created if missing)`,
   };
 }
