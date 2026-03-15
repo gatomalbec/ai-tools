@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Host wrapper command: safe-pi
+# VM command executed: pi
+exec env PI_AGENT_BIN="${PI_AGENT_BIN:-pi}" "$REPO_ROOT/scripts/pi-agent-vm.sh" run "$@"
