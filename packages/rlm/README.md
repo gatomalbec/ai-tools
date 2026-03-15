@@ -82,7 +82,7 @@ mkdir -p ~/.tdarlm/strategies
 cp strategies/program_idea_to_impl.md ~/.tdarlm/strategies/
 ```
 
-The seed is a template. `/rlm-init` copies it into `repo/.tdarlm/sessions/<session-id>/strategy.md` for that project and session, and scaffolds `state/requirements.json` + `state/traceability.md` when missing.
+The seed is a template. `/rlm-init` copies it into `repo/.tdarlm/sessions/<session-id>/strategy.md` for that project and session, and scaffolds `state/requirements.json` + `state/traceability.md` when missing. It does **not** enable RLM mode by itself.
 
 ## Usage
 
@@ -92,7 +92,12 @@ In pi-agent:
 /rlm-init                           # Initialize .tdarlm/ with default seed
 /rlm-init --seed bug_investigation  # Use a specific seed
 /rlm-init --force                   # Reinitialize (overwrites existing)
+/rlm-on                             # Enable RLM mode for this repository
+/rlm-off                            # Disable RLM mode for this repository
+/rlm-status                         # Show current RLM mode + session status
 ```
+
+RLM mode is **opt-in** and repo-scoped. Installing the extension does not automatically inject RLM observations until `/rlm-on` is called.
 
 `rlm` resolves the active `td` session (`td status --json` / `td usage --json`) and scopes state reads/writes to that session. If legacy repo-global files (`.tdarlm/strategy.md`, `.tdarlm/log.md`, `.tdarlm/state/*`) exist, `/rlm-init` migrates them into the active session directory.
 
@@ -156,6 +161,8 @@ The agent can enable autonomous multi-step iteration by writing a `loop.json` st
 
 After each agent loop, the extension decrements `remaining` and injects a continuation prompt. Stops when `remaining` hits 0 or `enabled` is set to `false`. Bounded by `--rlm-max-iterations`.
 
+Auto-continue only runs when RLM mode is ON (`/rlm-on`).
+
 If `state/requirements.json` exists and contains any `critical` requirement with `status: "open"`, auto-continue pauses and logs a reflection entry instead of iterating.
 
 ### Per-project state layout
@@ -163,6 +170,7 @@ If `state/requirements.json` exists and contains any `critical` requirement with
 ```
 repo/
   .tdarlm/
+    mode.json            # Repo-scoped ON/OFF switch for RLM mode
     sessions/
       <session-id>/
         strategy.md       # Reasoning policy (read-only by default)

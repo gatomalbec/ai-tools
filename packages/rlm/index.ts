@@ -7,6 +7,8 @@ import { initRlm, listSeeds } from "./src/init.js";
 import { appendLog } from "./src/state/log.js";
 import { resolveSessionId, ensureSessionDirs, shouldUseLegacyFallback } from "./src/state/session.js";
 import { readRequirementsSummary } from "./src/state/requirements.js";
+import { isModeEnabled, readMode, setMode } from "./src/state/mode.js";
+import { readStrategy } from "./src/state/strategy.js";
 import { sessionPath, statePath, LOOP_FILE, STATE_SUBDIR, DEFAULT_MAX_ITERATIONS } from "./src/constants.js";
 import type { ExecFn, LoopState } from "./src/types.js";
 
@@ -93,6 +95,20 @@ export default function rlmExtension(pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     currentCwd = ctx.cwd;
+
+    try {
+      const enabled = await isModeEnabled(ctx.cwd);
+      if (ctx.hasUI) {
+        ctx.ui.notify(
+          enabled
+            ? "RLM mode is ON for this repo (/rlm-off to disable)."
+            : "RLM mode is OFF for this repo (/rlm-on to enable).",
+          "info",
+        );
+      }
+    } catch {
+      // ignore mode notification failures
+    }
   });
 
   pi.on("before_agent_start", async (_event, ctx) => {
@@ -141,17 +157,74 @@ export default function rlmExtension(pi: ExtensionAPI) {
       }
 
       if (result.created) {
+        const enabled = await isModeEnabled(ctx.cwd);
+        const modeHint = enabled ? "" : " RLM mode is currently OFF; run /rlm-on to activate it.";
+
         if (result.migrated) {
           pi.sendUserMessage(
             `RLM session "${result.sessionId}" initialized by migrating legacy state. ` +
-              `Read the strategy at .tdarlm/sessions/${result.sessionId}/strategy.md and follow it.`,
+              `Read the strategy at .tdarlm/sessions/${result.sessionId}/strategy.md and follow it.` +
+              modeHint,
           );
         } else {
           pi.sendUserMessage(
             `RLM initialized for session "${result.sessionId}" with seed "${result.seedUsed}". ` +
-              `Read the strategy at .tdarlm/sessions/${result.sessionId}/strategy.md and follow it.`,
+              `Read the strategy at .tdarlm/sessions/${result.sessionId}/strategy.md and follow it.` +
+              modeHint,
           );
         }
+      }
+    },
+  });
+
+  pi.registerCommand("rlm-on", {
+    description: "Enable RLM mode for this repository",
+    handler: async (_args, ctx) => {
+      const mode = await setMode(ctx.cwd, true);
+      const sessionId = await resolveSessionId(exec, ctx.cwd);
+      const strategy = await readStrategy(ctx.cwd, sessionId);
+
+      if (ctx.hasUI) {
+        ctx.ui.notify(`RLM mode enabled (repo). Updated: ${mode.updatedAt}`, "info");
+      }
+
+      if (!strategy) {
+        pi.sendUserMessage("RLM mode is ON, but no strategy is initialized for this session. Run /rlm-init.");
+      }
+    },
+  });
+
+  pi.registerCommand("rlm-off", {
+    description: "Disable RLM mode for this repository",
+    handler: async (_args, ctx) => {
+      const mode = await setMode(ctx.cwd, false);
+      if (ctx.hasUI) {
+        ctx.ui.notify(`RLM mode disabled (repo). Updated: ${mode.updatedAt}`, "info");
+      }
+    },
+  });
+
+  pi.registerCommand("rlm-status", {
+    description: "Show whether RLM mode is active for this repository",
+    handler: async (_args, ctx) => {
+      const sessionId = await resolveSessionId(exec, ctx.cwd);
+      const mode = await readMode(ctx.cwd);
+      const strategy = await readStrategy(ctx.cwd, sessionId);
+      const reqSummary = await readRequirementsSummary(ctx.cwd, sessionId);
+      const loop = await readLoopState(ctx.cwd, sessionId);
+
+      const lines = [
+        `RLM mode: ${mode.enabled ? "ON" : "OFF"} (repo-scoped)`,
+        `Session: ${sessionId}`,
+        `Strategy: ${strategy ? `seed=${strategy.meta.seed}, rev=${strategy.meta.revision}` : "(not initialized)"}`,
+        `Observation mode: ${liveObs ? "live" : "before_agent_start"}`,
+        `Strategy mutability: ${fixedStrategy ? "fixed" : "mutable"}`,
+        `Requirements gate: ${reqSummary.blocking ? `BLOCKED (${reqSummary.criticalOpen} critical-open)` : "clear"}`,
+        `Auto-continue: ${loop?.enabled ? `enabled (${loop.remaining}/${loop.max} remaining)` : "disabled"}`,
+      ];
+
+      if (ctx.hasUI) {
+        ctx.ui.notify(lines.join("\n"), "info");
       }
     },
   });
@@ -161,6 +234,10 @@ export default function rlmExtension(pi: ExtensionAPI) {
   if (!liveObs) {
     pi.on("before_agent_start", async (_event, ctx) => {
       try {
+        if (!(await isModeEnabled(ctx.cwd))) {
+          return {};
+        }
+
         const obs = await buildObservation(ctx.cwd, exec);
         const rendered = renderObservation(obs);
         return { systemPrompt: rendered };
@@ -176,6 +253,10 @@ export default function rlmExtension(pi: ExtensionAPI) {
   if (liveObs) {
     pi.on("context", async (_event, ctx) => {
       try {
+        if (!(await isModeEnabled(ctx.cwd))) {
+          return {};
+        }
+
         const obs = await buildObservation(ctx.cwd, exec);
         const rendered = renderObservation(obs);
 
@@ -197,6 +278,8 @@ export default function rlmExtension(pi: ExtensionAPI) {
 
   pi.on("agent_end", async (_event, ctx) => {
     try {
+      if (!(await isModeEnabled(ctx.cwd))) return;
+
       const sessionId = await resolveSessionId(exec, ctx.cwd);
       const loop = await readLoopState(ctx.cwd, sessionId);
       if (!loop || !loop.enabled) return;

@@ -8,6 +8,7 @@ export const STRATEGY_FILE = "strategy.md";
 export const LOG_FILE = "log.md";
 export const STATE_SUBDIR = "state";
 export const LOOP_FILE = "loop.json";
+export const MODE_FILE = "mode.json";
 export const DEFAULT_SESSION_ID = "default";
 
 // Global seed location
