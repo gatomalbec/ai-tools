@@ -1,43 +1,60 @@
-import { OBS_LOG_TAIL } from "./constants.js";
-import { readStrategy } from "./state/strategy.js";
-import { readLogTail } from "./state/log.js";
-import { getTaskContext } from "./state/task.js";
-import { listStateFiles } from "./state/store.js";
+import { readFile, readdir } from "node:fs/promises";
+import { STRATEGY_FILE, STATE_SUBDIR, sessionPath } from "./constants.js";
 import { resolveSessionId } from "./state/session.js";
-import { readRequirementsSummary, renderRequirementsSummary } from "./state/requirements.js";
+import { getTaskContext } from "./state/task.js";
 import type { ExecFn, Observation } from "./types.js";
 
+async function readStrategy(cwd: string, sessionId: string): Promise<string> {
+  try {
+    return await readFile(sessionPath(cwd, sessionId, STRATEGY_FILE), "utf-8");
+  } catch {
+    return "(no strategy initialized — run /rlm-init)";
+  }
+}
+
+async function listStateFiles(cwd: string, sessionId: string): Promise<string[]> {
+  try {
+    const entries = await readdir(sessionPath(cwd, sessionId, STATE_SUBDIR));
+    return entries.sort();
+  } catch {
+    return [];
+  }
+}
+
+async function requirementsSummaryLine(cwd: string, sessionId: string): Promise<string> {
+  try {
+    const raw = await readFile(sessionPath(cwd, sessionId, STATE_SUBDIR, "requirements.json"), "utf-8");
+    const data = JSON.parse(raw);
+    const reqs: any[] = Array.isArray(data) ? data : data.requirements ?? [];
+    const open = reqs.filter((r) => r.status === "open").length;
+    const confirmed = reqs.filter((r) => r.status === "confirmed").length;
+    const criticalOpen = reqs.filter((r) => r.priority === "critical" && r.status === "open").length;
+    return `${reqs.length} total, ${confirmed} confirmed, ${open} open (${criticalOpen} critical)`;
+  } catch {
+    return "(no requirements.json)";
+  }
+}
+
 /**
- * Obs(X) → O
- *
- * Builds a bounded observation from the full external state.
- * Each component is read in parallel and bounded independently.
- *
- * Workspace awareness (files, git state) is handled natively by pi-agent
- * and is not included in the RLM observation.
+ * Build a bounded observation from session state.
+ * Each component is read in parallel.
  */
 export async function buildObservation(cwd: string, exec: ExecFn): Promise<Observation> {
   const sessionId = await resolveSessionId(exec, cwd);
 
-  const [strategy, taskContext, logEntries, stateFiles, requirements] =
-    await Promise.all([
-      readStrategy(cwd, sessionId),
-      getTaskContext(exec, cwd),
-      readLogTail(cwd, OBS_LOG_TAIL, undefined, sessionId),
-      listStateFiles(cwd, sessionId),
-      readRequirementsSummary(cwd, sessionId),
-    ]);
+  const [strategy, taskContext, stateFiles, requirementsSummary] = await Promise.all([
+    readStrategy(cwd, sessionId),
+    getTaskContext(exec, cwd),
+    listStateFiles(cwd, sessionId),
+    requirementsSummaryLine(cwd, sessionId),
+  ]);
 
   return {
     sessionId,
-    strategy: strategy?.content ?? "(no strategy initialized — run /rlm-init)",
+    strategy,
     taskContext,
-    recentLog:
-      logEntries.length > 0
-        ? logEntries.map((e) => `[${e.timestamp}] [${e.level}] ${e.text}`).join("\n")
-        : "(no log entries)",
     stateFileIndex: stateFiles.length > 0 ? stateFiles.join(", ") : "(none)",
-    requirementsSummary: renderRequirementsSummary(requirements),
+    requirementsSummary,
   };
 }
 
@@ -56,11 +73,8 @@ ${obs.strategy}
 ### Task Context
 ${obs.taskContext}
 
-### Requirements Status
+### Requirements
 ${obs.requirementsSummary}
-
-### Recent Log (last ${OBS_LOG_TAIL})
-${obs.recentLog}
 
 ### State Files
 ${obs.stateFileIndex}`;

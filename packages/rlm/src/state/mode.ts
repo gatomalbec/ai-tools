@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { MODE_FILE, statePath } from "../constants.js";
+import { statePath } from "../constants.js";
+
+const MODE_FILE = "mode.json";
 
 export interface RlmMode {
   enabled: boolean;

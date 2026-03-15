@@ -1,26 +1,3 @@
-/** Strategy file metadata (YAML front matter) */
-export interface StrategyMeta {
-  seed: string;
-  initializedAt: string;
-  revision: number;
-}
-
-/** Parsed strategy file */
-export interface Strategy {
-  meta: StrategyMeta;
-  content: string;
-}
-
-/** Log entry levels */
-export type LogLevel = "observation" | "action" | "reflection" | "error";
-
-/** Single log entry */
-export interface LogEntry {
-  timestamp: string;
-  level: LogLevel;
-  text: string;
-}
-
 /** Auto-continue loop state */
 export interface LoopState {
   enabled: boolean;
@@ -28,35 +5,16 @@ export interface LoopState {
   max: number;
 }
 
-export type RequirementPriority = "critical" | "high" | "medium" | "low";
-export type RequirementStatus = "open" | "assumed" | "confirmed";
-
-export interface RequirementsSummary {
-  present: boolean;
-  sourceFile?: string;
-  total: number;
-  confirmed: number;
-  assumed: number;
-  open: number;
-  criticalOpen: number;
-  openQuestions: number;
-  activeAssumptions: number;
-  blocking: boolean;
-  parseError?: string;
-}
-
-/** The bounded observation O constructed from state X */
+/** The bounded observation injected into the system prompt */
 export interface Observation {
   sessionId: string;
   strategy: string;
   taskContext: string;
-
-  recentLog: string;
   stateFileIndex: string;
   requirementsSummary: string;
 }
 
-/** Shell exec helper signature used throughout state readers */
+/** Shell exec helper signature */
 export type ExecFn = (
   cmd: string,
   args: string[],

@@ -1,18 +1,14 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { buildObservation, renderObservation } from "./src/observation.js";
-import { registerTools } from "./src/tools.js";
 import { initRlm, listSeeds } from "./src/init.js";
-import { appendLog } from "./src/state/log.js";
-import { resolveSessionId, ensureSessionDirs, shouldUseLegacyFallback } from "./src/state/session.js";
-import { readRequirementsSummary } from "./src/state/requirements.js";
+import { resolveSessionId, ensureSessionDirs } from "./src/state/session.js";
 import { isModeEnabled, readMode, setMode } from "./src/state/mode.js";
-import { readStrategy } from "./src/state/strategy.js";
-import { sessionPath, statePath, LOOP_FILE, STATE_SUBDIR, DEFAULT_MAX_ITERATIONS } from "./src/constants.js";
+import { sessionPath, STATE_SUBDIR, DEFAULT_MAX_ITERATIONS, STRATEGY_FILE } from "./src/constants.js";
 import type { ExecFn, LoopState } from "./src/types.js";
 
-/** Shell exec helper — wraps execFile into the ExecFn signature */
+/** Shell exec helper */
 function createExec(): ExecFn {
   return (cmd, args, cwd) =>
     new Promise((resolve) => {
@@ -26,27 +22,18 @@ function createExec(): ExecFn {
     });
 }
 
+const LOOP_FILE = "loop.json";
+
 async function readLoopState(cwd: string, sessionId: string): Promise<LoopState | null> {
   try {
     const raw = await readFile(sessionPath(cwd, sessionId, STATE_SUBDIR, LOOP_FILE), "utf-8");
     return JSON.parse(raw) as LoopState;
   } catch {
-    if (!(await shouldUseLegacyFallback(cwd, sessionId))) {
-      return null;
-    }
-
-    try {
-      // Backward compatibility: legacy repo-global loop state.
-      const raw = await readFile(statePath(cwd, STATE_SUBDIR, LOOP_FILE), "utf-8");
-      return JSON.parse(raw) as LoopState;
-    } catch {
-      return null;
-    }
+    return null;
   }
 }
 
 async function writeLoopState(cwd: string, sessionId: string, state: LoopState): Promise<void> {
-  const { writeFile } = await import("node:fs/promises");
   await ensureSessionDirs(cwd, sessionId);
   await writeFile(
     sessionPath(cwd, sessionId, STATE_SUBDIR, LOOP_FILE),
@@ -55,18 +42,24 @@ async function writeLoopState(cwd: string, sessionId: string, state: LoopState):
   );
 }
 
+async function isRequirementsBlocking(cwd: string, sessionId: string): Promise<{ blocking: boolean; criticalOpen: number }> {
+  try {
+    const raw = await readFile(sessionPath(cwd, sessionId, STATE_SUBDIR, "requirements.json"), "utf-8");
+    const data = JSON.parse(raw);
+    const reqs: any[] = Array.isArray(data) ? data : data.requirements ?? [];
+    const criticalOpen = reqs.filter((r) => r.priority === "critical" && r.status === "open").length;
+    return { blocking: criticalOpen > 0, criticalOpen };
+  } catch {
+    return { blocking: false, criticalOpen: 0 };
+  }
+}
+
 export default function rlmExtension(pi: ExtensionAPI) {
   const exec = createExec();
-  let liveObs = false;
   let maxIterations = DEFAULT_MAX_ITERATIONS;
+  const RLM_UI_KEY = "rlm";
 
   // --- CLI flags ---
-
-  pi.registerFlag("rlm-live-obs", {
-    description: "Refresh RLM observation before every LLM call (not just per user prompt)",
-    type: "boolean",
-    default: false,
-  });
 
   pi.registerFlag("rlm-max-iterations", {
     description: "Maximum auto-continue iterations",
@@ -74,24 +67,69 @@ export default function rlmExtension(pi: ExtensionAPI) {
     default: String(DEFAULT_MAX_ITERATIONS),
   });
 
-  pi.registerFlag("rlm-fixed-strategy", {
-    description: "Strategy is immutable. Set to false to allow agent updates",
-    type: "boolean",
-    default: true,
-  });
-
-  // Read flags
-  liveObs = pi.getFlag("rlm-live-obs") === true;
-  const fixedStrategy = pi.getFlag("rlm-fixed-strategy") !== false;
   const maxFlag = pi.getFlag("rlm-max-iterations");
   if (typeof maxFlag === "string") {
     const parsed = parseInt(maxFlag, 10);
     if (!isNaN(parsed) && parsed > 0) maxIterations = parsed;
   }
 
-  // --- Helper to get cwd ---
+  // --- Helpers ---
 
   let currentCwd = process.cwd();
+  const getCwd = () => currentCwd;
+
+  async function buildStatusLines(cwd: string): Promise<{ enabled: boolean; lines: string[] }> {
+    const sessionId = await resolveSessionId(exec, cwd);
+    const mode = await readMode(cwd);
+    const reqCheck = await isRequirementsBlocking(cwd, sessionId);
+    const loop = await readLoopState(cwd, sessionId);
+
+    let strategyInfo: string;
+    try {
+      await readFile(sessionPath(cwd, sessionId, STRATEGY_FILE), "utf-8");
+      strategyInfo = "initialized";
+    } catch {
+      strategyInfo = "(not initialized)";
+    }
+
+    const lines = [
+      `RLM mode: ${mode.enabled ? "ON" : "OFF"}`,
+      `Session: ${sessionId}`,
+      `Strategy: ${strategyInfo}`,
+      `Requirements gate: ${reqCheck.blocking ? `BLOCKED (${reqCheck.criticalOpen} critical-open)` : "clear"}`,
+      `Auto-continue: ${loop?.enabled ? `enabled (${loop.remaining}/${loop.max} remaining)` : "disabled"}`,
+    ];
+
+    return { enabled: mode.enabled, lines };
+  }
+
+  function clearRlmUi(ctx: ExtensionContext): void {
+    if (!ctx.hasUI) return;
+    ctx.ui.setStatus(RLM_UI_KEY, undefined);
+    ctx.ui.setWidget(RLM_UI_KEY, undefined);
+  }
+
+  async function refreshRlmUi(ctx: ExtensionContext): Promise<void> {
+    if (!ctx.hasUI) return;
+
+    try {
+      const status = await buildStatusLines(ctx.cwd);
+      if (!status.enabled) {
+        clearRlmUi(ctx);
+        return;
+      }
+
+      ctx.ui.setStatus(
+        RLM_UI_KEY,
+        `${status.lines[0]} · ${status.lines[1]} · ${status.lines[3]} · ${status.lines[4]}`,
+      );
+      ctx.ui.setWidget(RLM_UI_KEY, status.lines, { placement: "aboveEditor" });
+    } catch {
+      clearRlmUi(ctx);
+    }
+  }
+
+  // --- Events ---
 
   pi.on("session_start", async (_event, ctx) => {
     currentCwd = ctx.cwd;
@@ -107,21 +145,23 @@ export default function rlmExtension(pi: ExtensionAPI) {
         );
       }
     } catch {
-      // ignore mode notification failures
+      // ignore
     }
+
+    await refreshRlmUi(ctx);
+  });
+
+  pi.on("session_switch", async (_event, ctx) => {
+    currentCwd = ctx.cwd;
+    await refreshRlmUi(ctx);
   });
 
   pi.on("before_agent_start", async (_event, ctx) => {
     currentCwd = ctx.cwd;
+    await refreshRlmUi(ctx);
   });
 
-  const getCwd = () => currentCwd;
-
-  // --- Register tools ---
-
-  registerTools(pi, exec, getCwd, { fixedStrategy });
-
-  // --- Register /rlm-init command ---
+  // --- Commands ---
 
   pi.registerCommand("rlm-init", {
     description: "Initialize .tdarlm/ state directory with a seed strategy",
@@ -135,7 +175,6 @@ export default function rlmExtension(pi: ExtensionAPI) {
         seed = parts[seedIdx + 1];
       }
 
-      // If no seed specified and multiple available, list them.
       if (!seed && !force) {
         const seeds = await listSeeds();
         if (seeds.length > 1) {
@@ -160,20 +199,14 @@ export default function rlmExtension(pi: ExtensionAPI) {
         const enabled = await isModeEnabled(ctx.cwd);
         const modeHint = enabled ? "" : " RLM mode is currently OFF; run /rlm-on to activate it.";
 
-        if (result.migrated) {
-          pi.sendUserMessage(
-            `RLM session "${result.sessionId}" initialized by migrating legacy state. ` +
-              `Read the strategy at .tdarlm/sessions/${result.sessionId}/strategy.md and follow it.` +
-              modeHint,
-          );
-        } else {
-          pi.sendUserMessage(
-            `RLM initialized for session "${result.sessionId}" with seed "${result.seedUsed}". ` +
-              `Read the strategy at .tdarlm/sessions/${result.sessionId}/strategy.md and follow it.` +
-              modeHint,
-          );
-        }
+        pi.sendUserMessage(
+          `RLM initialized for session "${result.sessionId}" with seed "${result.seedUsed}". ` +
+            `Read the strategy at .tdarlm/sessions/${result.sessionId}/strategy.md and follow it.` +
+            modeHint,
+        );
       }
+
+      await refreshRlmUi(ctx);
     },
   });
 
@@ -181,16 +214,19 @@ export default function rlmExtension(pi: ExtensionAPI) {
     description: "Enable RLM mode for this repository",
     handler: async (_args, ctx) => {
       const mode = await setMode(ctx.cwd, true);
-      const sessionId = await resolveSessionId(exec, ctx.cwd);
-      const strategy = await readStrategy(ctx.cwd, sessionId);
 
       if (ctx.hasUI) {
-        ctx.ui.notify(`RLM mode enabled (repo). Updated: ${mode.updatedAt}`, "info");
+        ctx.ui.notify(`RLM mode enabled. Updated: ${mode.updatedAt}`, "info");
       }
 
-      if (!strategy) {
+      const sessionId = await resolveSessionId(exec, ctx.cwd);
+      try {
+        await readFile(sessionPath(ctx.cwd, sessionId, STRATEGY_FILE), "utf-8");
+      } catch {
         pi.sendUserMessage("RLM mode is ON, but no strategy is initialized for this session. Run /rlm-init.");
       }
+
+      await refreshRlmUi(ctx);
     },
   });
 
@@ -199,82 +235,40 @@ export default function rlmExtension(pi: ExtensionAPI) {
     handler: async (_args, ctx) => {
       const mode = await setMode(ctx.cwd, false);
       if (ctx.hasUI) {
-        ctx.ui.notify(`RLM mode disabled (repo). Updated: ${mode.updatedAt}`, "info");
+        ctx.ui.notify(`RLM mode disabled. Updated: ${mode.updatedAt}`, "info");
       }
+      await refreshRlmUi(ctx);
     },
   });
 
   pi.registerCommand("rlm-status", {
     description: "Show whether RLM mode is active for this repository",
     handler: async (_args, ctx) => {
-      const sessionId = await resolveSessionId(exec, ctx.cwd);
-      const mode = await readMode(ctx.cwd);
-      const strategy = await readStrategy(ctx.cwd, sessionId);
-      const reqSummary = await readRequirementsSummary(ctx.cwd, sessionId);
-      const loop = await readLoopState(ctx.cwd, sessionId);
-
-      const lines = [
-        `RLM mode: ${mode.enabled ? "ON" : "OFF"} (repo-scoped)`,
-        `Session: ${sessionId}`,
-        `Strategy: ${strategy ? `seed=${strategy.meta.seed}, rev=${strategy.meta.revision}` : "(not initialized)"}`,
-        `Observation mode: ${liveObs ? "live" : "before_agent_start"}`,
-        `Strategy mutability: ${fixedStrategy ? "fixed" : "mutable"}`,
-        `Requirements gate: ${reqSummary.blocking ? `BLOCKED (${reqSummary.criticalOpen} critical-open)` : "clear"}`,
-        `Auto-continue: ${loop?.enabled ? `enabled (${loop.remaining}/${loop.max} remaining)` : "disabled"}`,
-      ];
-
+      const status = await buildStatusLines(ctx.cwd);
       if (ctx.hasUI) {
-        ctx.ui.notify(lines.join("\n"), "info");
+        ctx.ui.notify(status.lines.join("\n"), "info");
       }
+      await refreshRlmUi(ctx);
     },
   });
 
-  // --- Observation injection: default mode (before_agent_start) ---
+  // --- Observation injection ---
 
-  if (!liveObs) {
-    pi.on("before_agent_start", async (_event, ctx) => {
-      try {
-        if (!(await isModeEnabled(ctx.cwd))) {
-          return {};
-        }
-
-        const obs = await buildObservation(ctx.cwd, exec);
-        const rendered = renderObservation(obs);
-        return { systemPrompt: rendered };
-      } catch {
-        // .tdarlm not initialized — skip silently
+  pi.on("before_agent_start", async (_event, ctx) => {
+    try {
+      if (!(await isModeEnabled(ctx.cwd))) {
         return {};
       }
-    });
-  }
 
-  // --- Observation injection: live mode (context event) ---
+      const obs = await buildObservation(ctx.cwd, exec);
+      const rendered = renderObservation(obs);
+      return { systemPrompt: rendered };
+    } catch {
+      return {};
+    }
+  });
 
-  if (liveObs) {
-    pi.on("context", async (_event, ctx) => {
-      try {
-        if (!(await isModeEnabled(ctx.cwd))) {
-          return {};
-        }
-
-        const obs = await buildObservation(ctx.cwd, exec);
-        const rendered = renderObservation(obs);
-
-        // Inject as a system message at the end of the message array
-        const messages = [..._event.messages];
-        messages.push({
-          role: "user",
-          content: [{ type: "text", text: `<rlm-observation>\n${rendered}\n</rlm-observation>` }],
-        } as any);
-
-        return { messages };
-      } catch {
-        return {};
-      }
-    });
-  }
-
-  // --- Auto-continue (agent_end) ---
+  // --- Auto-continue with requirements gating ---
 
   pi.on("agent_end", async (_event, ctx) => {
     try {
@@ -285,7 +279,6 @@ export default function rlmExtension(pi: ExtensionAPI) {
       if (!loop || !loop.enabled) return;
 
       if (loop.remaining <= 0) {
-        await appendLog(ctx.cwd, "action", "Auto-continue exhausted — stopping.", sessionId);
         loop.enabled = false;
         await writeLoopState(ctx.cwd, sessionId, loop);
         return;
@@ -296,21 +289,14 @@ export default function rlmExtension(pi: ExtensionAPI) {
         loop.max = maxIterations;
       }
 
-      // Requirements gate: stop autonomous iteration when critical
-      // requirements are still open.
-      const reqSummary = await readRequirementsSummary(ctx.cwd, sessionId);
-      if (reqSummary.blocking) {
+      // Requirements gate: halt when critical requirements are unresolved.
+      const reqCheck = await isRequirementsBlocking(ctx.cwd, sessionId);
+      if (reqCheck.blocking) {
         loop.enabled = false;
         await writeLoopState(ctx.cwd, sessionId, loop);
-        await appendLog(
-          ctx.cwd,
-          "reflection",
-          `Auto-continue paused: ${reqSummary.criticalOpen} critical requirement(s) still open in ${reqSummary.sourceFile ?? "requirements.json"}.`,
-          sessionId,
-        );
 
         pi.sendUserMessage(
-          "Auto-continue paused: unresolved critical requirements remain. Refine requirements with the user before continuing.",
+          `Auto-continue paused: ${reqCheck.criticalOpen} critical requirement(s) still open. Resolve them before continuing.`,
           { deliverAs: "followUp" },
         );
         return;
@@ -320,26 +306,14 @@ export default function rlmExtension(pi: ExtensionAPI) {
       loop.remaining = Math.max(0, loop.remaining - 1);
       await writeLoopState(ctx.cwd, sessionId, loop);
 
-      const iterationNum = loop.max - loop.remaining;
-      await appendLog(
-        ctx.cwd,
-        "action",
-        `Auto-continue iteration ${iterationNum}/${loop.max} (${loop.remaining} remaining)`,
-        sessionId,
-      );
-
       pi.sendUserMessage(
         "Continue. Review the current strategy and state, then execute the next step.",
         { deliverAs: "followUp" },
       );
     } catch {
       // No .tdarlm or no loop.json — skip silently
+    } finally {
+      await refreshRlmUi(ctx);
     }
   });
-
-  // --- Prompt guidelines (global) ---
-
-  // These are provided via individual tool promptGuidelines, but we add
-  // a global guideline via before_agent_start system prompt when not in live mode.
-  // In live mode, they're part of the observation block.
 }
