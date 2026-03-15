@@ -21,15 +21,6 @@ export interface LogEntry {
   text: string;
 }
 
-/** Git summary for workspace observation */
-export interface GitSummary {
-  branch: string;
-  staged: number;
-  modified: number;
-  untracked: number;
-  lastCommit: string | null;
-}
-
 /** Auto-continue loop state */
 export interface LoopState {
   enabled: boolean;
@@ -42,7 +33,7 @@ export interface Observation {
   sessionId: string;
   strategy: string;
   taskContext: string;
-  workspaceSummary: string;
+
   recentLog: string;
   stateFileIndex: string;
 }

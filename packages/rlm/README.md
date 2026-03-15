@@ -21,16 +21,17 @@ a_t     = LLM(O_t)
 We decompose `X` into concrete subsystems:
 
 ```
-X = { workspace, strategy, tasks, log, state_files }
+X = { strategy, tasks, log, state_files }
 ```
 
 | Component | Location | Role |
 |-----------|----------|------|
-| **Workspace** | Repo files | The project itself — code, configs, artifacts |
-| **Strategy** | `.tdarlm/sessions/<session-id>/strategy.md` | Reasoning policy that governs the agent's approach. Seeded from a template at init time. By default immutable; optionally mutable (see below) |
+| **Strategy** | `.tdarlm/sessions/<session-id>/strategy.md` | Reasoning policy that governs the agent's approach. Seeded from a template at init time. Immutable by default; optionally mutable (see below) |
 | **Tasks** | `.todos/` (via [`td`](https://github.com/marcus/td)) | Task decomposition and tracking. The agent queries `td` for current task state |
 | **Log** | `.tdarlm/sessions/<session-id>/log.md` | Timestamped entries: observations, actions, reflections, errors. Provides memory across context windows |
 | **State files** | `.tdarlm/sessions/<session-id>/state/` | Arbitrary persistent intermediate data (e.g., `orient.md`, `dependency-graph.json`) |
+
+Workspace awareness (files, git state, code search) is handled natively by pi-agent and is not part of the RLM observation.
 
 Each component serves a distinct function in the recursive loop:
 - **Strategy** defines *what to do and how* — the agent's reasoning policy for the current project.
@@ -46,15 +47,21 @@ The prompt builder reads bounded slices of each component:
 |-----------|-------|-----------|
 | Strategy | Full file | Core policy; must be fully visible; kept small by convention |
 | Task context | 2000 chars | `td usage --json` is already AI-optimized |
-| Workspace | Git summary + 15 recent files | Spatial awareness without overload |
 | Log | Last 20 entries | Recency bias; deeper access via `rlm_read_log` tool |
 | State index | File names only | Content read on-demand via `rlm_read_state` tool |
 
-### Mutable vs. immutable strategy
+### Mutable strategy
 
-By default, the strategy is immutable — the agent reads it but cannot modify it. This matches the paper's original formalism where `Obs` is fixed.
+By default, the strategy is immutable — the agent reads it but cannot modify it. This matches the paper's formalism where the observation function `Obs` is fixed.
 
-The `--rlm-fixed-strategy=false` flag makes the strategy part of mutable state, allowing the agent to update its own reasoning policy as it learns about the problem. When enabled, the agent must provide a reason for each update, and all mutations are logged with a revision counter.
+Setting `--rlm-fixed-strategy=false` makes the strategy part of mutable state. When `strategy ∈ X` and `strategy ⊂ O`, the agent observes and can rewrite its own reasoning policy, creating a self-referential loop. This is closer to Reflexion (Shinn et al. 2023), where the agent generates and revises its own reasoning artifacts.
+
+The immutable default is recommended. The mutable option exists for experimentation.
+
+When mutable strategy is enabled:
+- The agent must provide a reason for each update.
+- All mutations are logged with a revision counter.
+- The previous version is snapshotted to `state/strategy.v{N}.md` before overwriting.
 
 ## Installation
 
@@ -142,6 +149,11 @@ Seed strategies live in `~/.tdarlm/strategies/`. See [`strategies/program_idea_t
 - Phase 1: Decompose (bounded recursive task breakdown)
 - Phase 2: Implement (observe-think-act-verify loop)
 - Phase 3: Integrate & Verify (acceptance criteria checking)
+
+## References
+
+- Qu et al. (2025). *Recursive Language Models*. arXiv:2512.24601. Formalizes the recursive state machine (`X`, `Obs`, `T`) that this extension implements.
+- Shinn et al. (2023). *Reflexion: Language Agents with Verbal Reinforcement Learning*. NeurIPS 2023. Closest precedent for mutable self-generated reasoning artifacts — the agent generates and revises its own verbal feedback. Our mutable strategy option (`--rlm-fixed-strategy=false`) follows a similar pattern: the strategy is a replaceable policy document rather than an append-only log.
 
 ## License
 

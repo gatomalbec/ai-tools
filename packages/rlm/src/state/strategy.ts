@@ -1,7 +1,9 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import {
   DEFAULT_SESSION_ID,
   STRATEGY_FILE,
+  STATE_SUBDIR,
   statePath,
   sessionPath,
 } from "../constants.js";
@@ -95,6 +97,14 @@ export async function updateStrategy(
   const meta: StrategyMeta = existing
     ? { ...existing.meta, revision: existing.meta.revision + 1 }
     : { seed: "unknown", initializedAt: new Date().toISOString(), revision: 1 };
+
+  // Snapshot the previous version before overwriting.
+  if (existing) {
+    const snapshotName = `strategy.v${existing.meta.revision}.md`;
+    const snapshotPath = sessionPath(cwd, sessionId, STATE_SUBDIR, snapshotName);
+    await mkdir(dirname(snapshotPath), { recursive: true });
+    await writeFile(snapshotPath, serializeFrontMatter(existing.meta, existing.content), "utf-8");
+  }
 
   await writeStrategy(cwd, newContent, meta, sessionId);
   return meta;
