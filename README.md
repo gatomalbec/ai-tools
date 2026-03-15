@@ -4,8 +4,6 @@ Agent tools and extensions for [pi-agent](https://github.com/badlogic/pi-mono/tr
 
 ## Pi-agent sync across machines
 
-This repo can be your canonical `~/.pi/agent` source.
-
 ### 1) Choose what to enable
 
 ```bash
