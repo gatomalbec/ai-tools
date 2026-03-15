@@ -1,8 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Resolve this script's real path so symlink installs (e.g. ~/.local/bin/safe-pi)
+# still find the repo-local safe-pi-vm.sh.
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE" ]]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  TARGET="$(readlink "$SOURCE")"
+  if [[ "$TARGET" != /* ]]; then
+    SOURCE="$DIR/$TARGET"
+  else
+    SOURCE="$TARGET"
+  fi
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+VM_WRAPPER="$SCRIPT_DIR/safe-pi-vm.sh"
+
+if [[ ! -x "$VM_WRAPPER" ]]; then
+  echo "safe-pi error: missing executable VM wrapper at $VM_WRAPPER" >&2
+  exit 1
+fi
 
 # Host wrapper command: safe-pi
 # VM command executed: pi
-exec env PI_AGENT_BIN="${PI_AGENT_BIN:-pi}" "$REPO_ROOT/scripts/pi-agent-vm.sh" run "$@"
+exec "$VM_WRAPPER" run "$@"

@@ -6,6 +6,7 @@ PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 CONFIG_FILE="${PI_AGENT_CONFIG:-$REPO_ROOT/.pi-agent-selection.mk}"
 SKILLS_SRC="$REPO_ROOT/skills/pi-skills"
 EXT_SRC="$REPO_ROOT/extensions"
+SAFE_PI_BIN_DIR="${SAFE_PI_BIN_DIR:-$HOME/.local/bin}"
 
 # Safety flags (all default to false)
 PRUNE_UNSELECTED="${PI_AGENT_PRUNE_UNSELECTED:-false}"
@@ -195,6 +196,22 @@ link_selected() {
   done
 }
 
+install_safe_pi_command() {
+  local src="$REPO_ROOT/scripts/safe-pi"
+  local dst_dir="$SAFE_PI_BIN_DIR"
+  local dst="$dst_dir/safe-pi"
+
+  mkdir -p "$dst_dir"
+  ln -sfn "$src" "$dst"
+
+  if [[ ":$PATH:" != *":$dst_dir:"* ]]; then
+    echo "Installed safe-pi at: $dst"
+    echo "NOTE: $dst_dir is not currently in PATH. Add it to use 'safe-pi' anywhere."
+  else
+    echo "Installed safe-pi command at: $dst"
+  fi
+}
+
 ensure_container_dir "$PI_AGENT_DIR/skills"
 ensure_container_dir "$PI_AGENT_DIR/extensions"
 
@@ -203,6 +220,7 @@ prune_repo_symlinks "$PI_AGENT_DIR/extensions" "${SELECTED_EXT[@]}"
 
 link_selected "$SKILLS_SRC" "$PI_AGENT_DIR/skills" "${SELECTED_SKILLS[@]}"
 link_selected "$EXT_SRC" "$PI_AGENT_DIR/extensions" "${SELECTED_EXT[@]}"
+install_safe_pi_command
 
 echo "Install complete."
 echo "Skills enabled: ${SELECTED_SKILLS[*]}"

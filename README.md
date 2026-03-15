@@ -1,8 +1,8 @@
 # ai-tools
 
-Agent tools and extensions for [pi-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent).
+Agent tools and extensions for [pi](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent).
 
-## Pi-agent sync across machines
+## Pi sync across machines
 
 ### 1) Choose what to enable
 
@@ -54,88 +54,122 @@ make install REPLACE_TOP_LEVEL_LINKS=true
 make status
 ```
 
-## macOS disposable NixOS VM workflow for `pi-agent`
+## macOS disposable NixOS VM workflow for `safe-pi`
 
-This repo also includes a macOS-only workflow that runs `pi-agent` in a disposable NixOS VM using [Lima](https://lima-vm.io/) and the `nixos-lima` template.
+This repo includes a macOS-only wrapper command, `safe-pi`, that runs `pi` inside a disposable NixOS VM using [Lima](https://lima-vm.io/) and `nixos-lima`.
 
-### Prerequisites
+### Prerequisite
 
 ```bash
 brew install lima
 ```
 
-### Lifecycle
+### Install the `safe-pi` command
+
+`make install` and `make bootstrap` now install a `safe-pi` symlink to:
 
 ```bash
-# create/start VM
-make vm-up
-
-# open interactive shell (starts in /workspace)
-make vm-shell
-
-# run pi in VM (supports extra args)
-make vm-run
-make vm-run VM_ARGS="--help"
-
-# equivalent wrapper target
-make safe-pi VM_ARGS="--help"
-
-# stop VM
-make vm-stop
-
-# destroy VM for clean recreate
-make vm-destroy
-
-# inspect Lima instances
-make vm-status
+~/.local/bin/safe-pi
 ```
 
-### Host `safe-pi` command
+If `~/.local/bin` is not in your `PATH`, add it in your shell config.
 
-A wrapper script is provided at `scripts/safe-pi`. It runs `pi` inside the VM workflow.
-
-If you want to invoke it as a normal shell command:
-
-```bash
-mkdir -p ~/.local/bin
-ln -sf "$(pwd)/scripts/safe-pi" ~/.local/bin/safe-pi
-# ensure ~/.local/bin is in PATH
-```
-
-Then use:
+### Usage
 
 ```bash
 safe-pi --help
 safe-pi "your prompt"
+safe-pi --model gpt-5
 ```
+
+### In-session kill command
+
+Inside `safe-pi`, you can stop the VM and exit `pi` with:
+
+```text
+/kill
+```
+
+Alias:
+
+```text
+/kill-vm
+```
+
+If the command is newly installed, run `/reload` inside `pi` first.
+
+If a VM shutdown ever drops you back to a garbled host terminal, run:
+
+```bash
+reset
+# or: stty sane
+```
+
+Recent `safe-pi` updates also attempt to auto-restore host TTY settings after VM disconnect.
+
+### Optional VM lifecycle commands
+
+If you want direct VM control, use:
+
+```bash
+./scripts/safe-pi-vm.sh up
+./scripts/safe-pi-vm.sh shell
+./scripts/safe-pi-vm.sh stop
+./scripts/safe-pi-vm.sh destroy
+./scripts/safe-pi-vm.sh status
+```
+
+(Older `./scripts/pi-agent-vm.sh ...` invocations still work via a compatibility shim.)
+
+Notes:
+- `logout` exits the interactive VM shell session, but does **not** stop the VM.
+- Stop the VM explicitly with `./scripts/safe-pi-vm.sh stop` (or destroy it with `destroy`).
+- `pi` is not required to be globally installed in the VM shell; `safe-pi` can run it via `nix develop` or `npx` fallback.
 
 ### Mounts
 
 On create, the workflow mounts:
 
-- host project directory (current working directory by default) → `/workspace`
-- host `~/.pi` → `/home/agent/.pi`
+- host project directory (current working directory by default)
+- host `~/.pi`
 
-So edits inside the VM at `/workspace` directly affect host files.
+The wrapper prefers these guest paths:
+
+- project at `/workspace`
+- pi config at `$HOME/.pi`
+
+If an older instance uses host-absolute mount paths (for example `/Users/<you>/...`), `safe-pi` auto-detects that layout and continues to work.
 
 ### Agent environment detection
 
-When running `make vm-run`:
+When running `safe-pi`:
 
-- if `/workspace/flake.nix` exists: runs `pi` via
-  `nix develop /workspace --command pi ...`
-- otherwise: runs `pi` directly in `/workspace`
+- if `<workspace>/flake.nix` exists and `nix` is available: runs `pi` via
+  `nix develop <workspace> --command pi ...`
+- otherwise, if `pi` is already in PATH in the VM: runs `pi` directly
+- otherwise: falls back to `nix shell nixpkgs#nodejs --command npx -y @mariozechner/pi-coding-agent ...`
+
+`<workspace>` is resolved dynamically:
+
+- preferred: `/workspace` (new instance layout)
+- fallback: the host project absolute path mount (legacy instances)
+
+For legacy `~/.pi` mounts, `safe-pi` also exports `PI_CODING_AGENT_DIR` to the mounted host path so auth/config are reused.
 
 ### Configuration overrides
 
 You can customize behavior via environment variables:
 
-- `PI_AGENT_VM_INSTANCE` (default `pi-agent`)
-- `PI_AGENT_VM_PROJECT_DIR` (default current directory)
-- `PI_AGENT_VM_PI_DIR` (default `~/.pi`)
-- `PI_AGENT_VM_TEMPLATE_URL` (default `github:nixos-lima`)
-- `PI_AGENT_VM_CPUS`, `PI_AGENT_VM_MEMORY_GIB`, `PI_AGENT_VM_DISK_GIB`
-- `PI_AGENT_BIN` (default `pi`)
+- `SAFE_PI_VM_INSTANCE` (default `safe-pi`)
+- `SAFE_PI_VM_PROJECT_DIR` (default current directory)
+- `SAFE_PI_VM_PI_DIR` (default `~/.pi`)
+- `SAFE_PI_VM_TEMPLATE_URL` (default `https://raw.githubusercontent.com/nixos-lima/nixos-lima/master/nixos.yaml`)
+- `SAFE_PI_VM_CPUS`, `SAFE_PI_VM_MEMORY_GIB`, `SAFE_PI_VM_DISK_GIB`
+- `SAFE_PI_BIN` (default `pi`)
+- `SAFE_PI_NIX_FALLBACK_APP` (default `nixpkgs#nodejs`)
+- `SAFE_PI_NPM_PACKAGE` (default `@mariozechner/pi-coding-agent`)
+
+Legacy `PI_AGENT_*` VM variable names are still accepted for backward compatibility.
 
 ## Repo layout
 

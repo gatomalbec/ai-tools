@@ -4,7 +4,7 @@ PRUNE_UNSELECTED ?= false
 REPLACE_TOP_LEVEL_LINKS ?= false
 OVERWRITE_FOREIGN_LINKS ?= false
 
-.PHONY: help configure install bootstrap status vm-up vm-shell vm-run vm-stop vm-destroy vm-status safe-pi
+.PHONY: help configure install bootstrap status
 
 help:
 	@echo "Targets:"
@@ -12,13 +12,6 @@ help:
 	@echo "  make install [PRUNE_UNSELECTED=false] [REPLACE_TOP_LEVEL_LINKS=false] [OVERWRITE_FOREIGN_LINKS=false]"
 	@echo "  make bootstrap   # checks required tools, creates defaults, runs install"
 	@echo "  make status"
-	@echo "  make vm-up       # start/create disposable NixOS VM on macOS"
-	@echo "  make vm-shell    # open shell in VM at /workspace"
-	@echo "  make vm-run VM_ARGS=\"...\"   # run pi in VM (flake-aware)"
-	@echo "  make safe-pi VM_ARGS=\"...\"  # same as vm-run (host safe-pi wrapper behavior)"
-	@echo "  make vm-stop     # stop VM"
-	@echo "  make vm-destroy  # delete VM for clean recreate"
-	@echo "  make vm-status   # show Lima instances"
 
 configure:
 	@./scripts/configure-pi-agent.sh
@@ -43,23 +36,3 @@ status:
 	@echo
 	@echo "~/.pi/agent/extensions:"; ls -la "$${PI_AGENT_DIR:-$$HOME/.pi/agent}/extensions" 2>/dev/null || true
 
-vm-up:
-	@./scripts/pi-agent-vm.sh up
-
-vm-shell:
-	@./scripts/pi-agent-vm.sh shell
-
-vm-run:
-	@./scripts/pi-agent-vm.sh run $(VM_ARGS)
-
-safe-pi:
-	@./scripts/safe-pi $(VM_ARGS)
-
-vm-stop:
-	@./scripts/pi-agent-vm.sh stop
-
-vm-destroy:
-	@./scripts/pi-agent-vm.sh destroy
-
-vm-status:
-	@./scripts/pi-agent-vm.sh status

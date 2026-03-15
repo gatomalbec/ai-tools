@@ -1,0 +1,5 @@
+{
+  "name": "pi-vm-control-local",
+  "private": true,
+  "type": "module"
+}
