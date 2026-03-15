@@ -28,6 +28,23 @@ export interface LoopState {
   max: number;
 }
 
+export type RequirementPriority = "critical" | "high" | "medium" | "low";
+export type RequirementStatus = "open" | "assumed" | "confirmed";
+
+export interface RequirementsSummary {
+  present: boolean;
+  sourceFile?: string;
+  total: number;
+  confirmed: number;
+  assumed: number;
+  open: number;
+  criticalOpen: number;
+  openQuestions: number;
+  activeAssumptions: number;
+  blocking: boolean;
+  parseError?: string;
+}
+
 /** The bounded observation O constructed from state X */
 export interface Observation {
   sessionId: string;
@@ -36,6 +53,7 @@ export interface Observation {
 
   recentLog: string;
   stateFileIndex: string;
+  requirementsSummary: string;
 }
 
 /** Shell exec helper signature used throughout state readers */

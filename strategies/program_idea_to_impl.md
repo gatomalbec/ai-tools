@@ -32,6 +32,54 @@ Artifact: `orient.md` — goal, acceptance criteria, knowns/unknowns, constraint
 
 ---
 
+## Phase 0.5: Contract Requirements (before decomposition)
+
+Goal: convert vague intent into an explicit, testable contract.
+
+1. Create/update `requirements.json` in RLM state (`rlm_write_state`).
+   Minimum schema:
+
+```json
+{
+  "requirements": [
+    {
+      "id": "REQ-001",
+      "statement": "One-sentence requirement",
+      "priority": "critical|high|medium|low",
+      "status": "open|assumed|confirmed",
+      "verification": "how this will be tested"
+    }
+  ],
+  "questions": [
+    { "id": "Q-001", "text": "question to user", "status": "open|answered" }
+  ],
+  "assumptions": [
+    { "id": "A-001", "text": "temporary assumption", "status": "active|retired" }
+  ]
+}
+```
+
+2. Ask high-information clarification questions in small batches (2-3 max).
+   Prefer questions that disambiguate multiple requirements at once.
+3. Mark each requirement as:
+   - `confirmed` — explicitly agreed by user or proven by source of truth
+   - `assumed` — temporary; include rollback/validation plan
+   - `open` — unresolved; cannot be silently ignored
+4. Build traceability immediately: each requirement must map to at least
+   one future task and one verification check.
+
+### Readiness gate (hard stop)
+- Do **not** enter Phase 1 if any `critical` requirement is `open`.
+- If assumptions exceed budget (default: 3), pause implementation and
+  re-engage user to collapse uncertainty.
+- A requirement without a verification method is not "ready".
+
+Artifacts:
+- `requirements.json`
+- `traceability.md` (`REQ -> task-id -> verification`)
+
+---
+
 ## Phase 1: Decompose (recursive, bounded)
 
 Goal: break the task into subtasks small enough to implement in a single
@@ -44,6 +92,7 @@ focused pass (rule of thumb: one file or one function boundary).
    - `outputs`: what it produces
    - `done-when`: verifiable predicate (inherited from or refining
      the parent's acceptance criteria)
+   - `req-ids`: linked requirements from `requirements.json`
    - `depth`: current recursion depth
 2. Order leaf tasks by **dependency**, not importance. A task that
    unblocks others ships first.
@@ -73,6 +122,15 @@ whatever `td` consumes natively).
 Goal: execute each leaf task, one at a time, using a structured loop.
 
 For each task in dependency order:
+
+Before coding each leaf, write a mini-contract in one block:
+- `task-id`
+- `req-ids`
+- `assumptions-in`
+- `guarantees-out`
+- `verification-check`
+
+Then execute:
 
 ```
 loop:
@@ -179,4 +237,8 @@ Artifact: verification log — which criteria passed/failed, with evidence.
 9. **The vertical slice is sacred.** The thinnest end-to-end path is
    always the first deliverable. It proves the architecture works and
    gives you a skeleton to hang everything else on.
+
+10. **No implementation without requirements closure.** If critical
+    requirements are unresolved, stop and refine with the user instead
+    of coding against guesswork.
 

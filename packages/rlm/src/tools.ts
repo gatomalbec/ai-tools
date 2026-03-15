@@ -5,6 +5,7 @@ import { appendLog, readLogTail } from "./state/log.js";
 import { readStateFile, writeStateFile, deleteStateFile } from "./state/store.js";
 import { resolveSessionId } from "./state/session.js";
 import { queryTd } from "./state/task.js";
+import { readRequirementsSummary, renderRequirementsSummary } from "./state/requirements.js";
 import { LOG_READ_DEFAULT, LOG_READ_MAX } from "./constants.js";
 import type { ExecFn, LogLevel } from "./types.js";
 
@@ -87,6 +88,20 @@ export function registerTools(pi: ExtensionAPI, exec: ExecFn, getCwd: () => stri
     async execute(_toolCallId, params) {
       const result = await queryTd(exec, getCwd(), params.command as "status" | "usage" | "query" | "show", params.args);
       return text(result);
+    },
+  });
+
+  pi.registerTool({
+    name: "rlm_requirements_status",
+    label: "Requirements Status",
+    description: "Summarize requirements closure and requirement-gate blockers for the active session.",
+    promptSnippet: "Read requirements contract status (open/assumed/confirmed, critical blockers)",
+    parameters: Type.Object({}),
+    async execute() {
+      const cwd = getCwd();
+      const sessionId = await resolveSessionId(exec, cwd);
+      const summary = await readRequirementsSummary(cwd, sessionId);
+      return text(renderRequirementsSummary(summary));
     },
   });
 

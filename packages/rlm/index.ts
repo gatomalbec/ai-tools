@@ -6,6 +6,7 @@ import { registerTools } from "./src/tools.js";
 import { initRlm, listSeeds } from "./src/init.js";
 import { appendLog } from "./src/state/log.js";
 import { resolveSessionId, ensureSessionDirs, shouldUseLegacyFallback } from "./src/state/session.js";
+import { readRequirementsSummary } from "./src/state/requirements.js";
 import { sessionPath, statePath, LOOP_FILE, STATE_SUBDIR, DEFAULT_MAX_ITERATIONS } from "./src/constants.js";
 import type { ExecFn, LoopState } from "./src/types.js";
 
@@ -210,6 +211,26 @@ export default function rlmExtension(pi: ExtensionAPI) {
       // Enforce hard ceiling
       if (loop.max > maxIterations) {
         loop.max = maxIterations;
+      }
+
+      // Requirements gate: stop autonomous iteration when critical
+      // requirements are still open.
+      const reqSummary = await readRequirementsSummary(ctx.cwd, sessionId);
+      if (reqSummary.blocking) {
+        loop.enabled = false;
+        await writeLoopState(ctx.cwd, sessionId, loop);
+        await appendLog(
+          ctx.cwd,
+          "reflection",
+          `Auto-continue paused: ${reqSummary.criticalOpen} critical requirement(s) still open in ${reqSummary.sourceFile ?? "requirements.json"}.`,
+          sessionId,
+        );
+
+        pi.sendUserMessage(
+          "Auto-continue paused: unresolved critical requirements remain. Refine requirements with the user before continuing.",
+          { deliverAs: "followUp" },
+        );
+        return;
       }
 
       // Decrement and continue

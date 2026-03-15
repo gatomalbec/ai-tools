@@ -4,6 +4,7 @@ import { readLogTail } from "./state/log.js";
 import { getTaskContext } from "./state/task.js";
 import { listStateFiles } from "./state/store.js";
 import { resolveSessionId } from "./state/session.js";
+import { readRequirementsSummary, renderRequirementsSummary } from "./state/requirements.js";
 import type { ExecFn, Observation } from "./types.js";
 
 /**
@@ -18,12 +19,13 @@ import type { ExecFn, Observation } from "./types.js";
 export async function buildObservation(cwd: string, exec: ExecFn): Promise<Observation> {
   const sessionId = await resolveSessionId(exec, cwd);
 
-  const [strategy, taskContext, logEntries, stateFiles] =
+  const [strategy, taskContext, logEntries, stateFiles, requirements] =
     await Promise.all([
       readStrategy(cwd, sessionId),
       getTaskContext(exec, cwd),
       readLogTail(cwd, OBS_LOG_TAIL, undefined, sessionId),
       listStateFiles(cwd, sessionId),
+      readRequirementsSummary(cwd, sessionId),
     ]);
 
   return {
@@ -35,6 +37,7 @@ export async function buildObservation(cwd: string, exec: ExecFn): Promise<Obser
         ? logEntries.map((e) => `[${e.timestamp}] [${e.level}] ${e.text}`).join("\n")
         : "(no log entries)",
     stateFileIndex: stateFiles.length > 0 ? stateFiles.join(", ") : "(none)",
+    requirementsSummary: renderRequirementsSummary(requirements),
   };
 }
 
@@ -52,6 +55,9 @@ ${obs.strategy}
 
 ### Task Context
 ${obs.taskContext}
+
+### Requirements Status
+${obs.requirementsSummary}
 
 ### Recent Log (last ${OBS_LOG_TAIL})
 ${obs.recentLog}

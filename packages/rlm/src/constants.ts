@@ -21,6 +21,15 @@ export const OBS_TASK_MAX_CHARS = 2000;
 export const LOG_READ_DEFAULT = 50;
 export const LOG_READ_MAX = 200;
 
+// Requirements contract files (preferred first)
+export const REQUIREMENTS_FILES = [
+  "requirements.json",
+  "requirements.yaml",
+  "requirements.yml",
+  "requirements.md",
+  "requirements.txt",
+] as const;
+
 // Auto-continue
 export const DEFAULT_MAX_ITERATIONS = 10;
 
