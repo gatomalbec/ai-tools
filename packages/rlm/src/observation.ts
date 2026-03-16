@@ -22,15 +22,23 @@ async function listStateFiles(cwd: string, sessionId: string): Promise<string[]>
   }
 }
 
-async function requirementsSummaryLine(cwd: string, sessionId: string): Promise<string> {
+async function requirementsSection(cwd: string, sessionId: string): Promise<string> {
   try {
     const raw = await readFile(sessionPath(cwd, sessionId, STATE_SUBDIR, "requirements.json"), "utf-8");
     const data = JSON.parse(raw);
     const reqs: any[] = Array.isArray(data) ? data : data.requirements ?? [];
+    if (reqs.length === 0) return "(none)";
+
     const open = reqs.filter((r) => r.status === "open").length;
     const confirmed = reqs.filter((r) => r.status === "confirmed").length;
     const criticalOpen = reqs.filter((r) => r.priority === "critical" && r.status === "open").length;
-    return `${reqs.length} total, ${confirmed} confirmed, ${open} open (${criticalOpen} critical)`;
+    const summary = `${reqs.length} total, ${confirmed} confirmed, ${open} open (${criticalOpen} critical)`;
+
+    const lines = reqs.map((r) => {
+      const src = r.source === "user" ? " (user-set, only user can resolve)" : "";
+      return `- ${r.id}: ${r.statement} [${r.priority}, ${r.status}]${src}`;
+    });
+    return `${summary}\n${lines.join("\n")}`;
   } catch {
     return "(no requirements.json)";
   }
@@ -47,7 +55,7 @@ export async function buildObservation(cwd: string, exec: ExecFn): Promise<Obser
     readStrategy(cwd, sessionId),
     getTaskContext(exec, cwd),
     listStateFiles(cwd, sessionId),
-    requirementsSummaryLine(cwd, sessionId),
+    requirementsSection(cwd, sessionId),
   ]);
 
   return {

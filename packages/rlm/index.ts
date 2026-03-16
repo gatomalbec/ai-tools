@@ -54,6 +54,7 @@ interface Requirement {
   statement: string;
   priority: string;
   status: string;
+  source?: "user" | "agent";
 }
 
 interface RequirementsData {
@@ -398,6 +399,7 @@ export default function rlmExtension(pi: ExtensionAPI) {
         statement: input,
         priority: "critical",
         status: "open",
+        source: "user",
       });
       await writeRequirements(ctx.cwd, sessionId, data);
       if (ctx.hasUI) ctx.ui.notify(`Added ${id}: ${input} (critical, open)`, "info");
