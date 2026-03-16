@@ -2,6 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { STRATEGY_FILE, STATE_SUBDIR, sessionPath } from "./constants.js";
 import { resolveSessionId } from "./state/session.js";
 import { getTaskContext } from "./state/task.js";
+import { getRecursionDepth } from "./recurse.js";
 import type { ExecFn, Observation } from "./types.js";
 
 async function readStrategy(cwd: string, sessionId: string): Promise<string> {
@@ -51,6 +52,7 @@ export async function buildObservation(cwd: string, exec: ExecFn): Promise<Obser
 
   return {
     sessionId,
+    depth: getRecursionDepth(),
     strategy,
     taskContext,
     stateFileIndex: stateFiles.length > 0 ? stateFiles.join(", ") : "(none)",
@@ -62,10 +64,15 @@ export async function buildObservation(cwd: string, exec: ExecFn): Promise<Obser
  * Render an observation into the markdown block injected into the system prompt.
  */
 export function renderObservation(obs: Observation): string {
+  const depthLine = obs.depth > 0 ? ` (recursive sub-agent, depth ${obs.depth})` : "";
+
   return `## RLM State Observation
 
 ### Session
-${obs.sessionId}
+${obs.sessionId}${depthLine}
+
+### Recursion Depth
+${obs.depth}
 
 ### Strategy
 ${obs.strategy}

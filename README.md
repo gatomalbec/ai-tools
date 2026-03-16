@@ -82,6 +82,10 @@ safe-pi "your prompt"
 safe-pi --model gpt-5
 ```
 
+By default, each `safe-pi` invocation prepends `--new-session` so runs do not reuse a prior interactive session.
+To opt out globally, set `SAFE_PI_NEW_SESSION=false`.
+For a one-off resume of the current session, run `safe-pi --resume ...`.
+
 ### In-session kill command
 
 Inside `safe-pi`, you can stop the VM and exit `pi` with:
@@ -168,6 +172,7 @@ You can customize behavior via environment variables:
 - `SAFE_PI_BIN` (default `pi`)
 - `SAFE_PI_NIX_FALLBACK_APP` (default `nixpkgs#nodejs`)
 - `SAFE_PI_NPM_PACKAGE` (default `@mariozechner/pi-coding-agent`)
+- `SAFE_PI_NEW_SESSION` (default `true`; prepends `--new-session` unless you already passed session flags)
 
 Legacy `PI_AGENT_*` VM variable names are still accepted for backward compatibility.
 

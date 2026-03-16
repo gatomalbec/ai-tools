@@ -14,15 +14,30 @@ import { sanitizeSessionId } from "./state/session.js";
 
 const DEFAULT_SEED = `# Default Strategy
 
-## Approach
-1. Understand the current task from td status
-2. Break down into sub-steps if useful
-3. Execute each step, logging progress
-4. Verify results
+## Phases
+
+### Phase 0: Orient
+Understand the problem before acting. Read relevant code, identify dependencies, build a mental model.
+
+### Phase 1: Decompose
+Break the problem into sub-tasks. For complex sub-tasks, use \`rlm_recurse\` to delegate to a fresh agent with isolated context. Each recursive call should be self-contained: include file paths, constraints, and decisions in the task description.
+
+### Phase 2: Implement
+Execute each sub-task. Prefer small, verifiable changes. After each change, verify it works.
+
+### Phase 3: Verify
+Check that all requirements are met. Run tests. Confirm the solution is complete.
+
+## When to recurse
+- The sub-problem needs significant exploration of unfamiliar code
+- The sub-problem is self-contained and can be solved independently
+- You need isolated context to avoid confusion with the parent task
+- Do NOT recurse for trivial tasks you can handle directly
 
 ## Constraints
 - Prefer small, verifiable changes
-- When stuck, reflect and revise approach
+- When stuck, reflect and try a different approach
+- Confirm critical assumptions before building on them
 `;
 
 export interface InitResult {

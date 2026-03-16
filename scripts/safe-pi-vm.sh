@@ -15,6 +15,7 @@ VM_WORKSPACE="/workspace"
 PI_BIN="${SAFE_PI_BIN:-${PI_AGENT_BIN:-pi}}"
 NIX_FALLBACK_APP="${SAFE_PI_NIX_FALLBACK_APP:-${PI_AGENT_NIX_FALLBACK_APP:-nixpkgs#nodejs}}"
 NPM_PACKAGE="${SAFE_PI_NPM_PACKAGE:-${PI_AGENT_NPM_PACKAGE:-@mariozechner/pi-coding-agent}}"
+NEW_SESSION_DEFAULT="${SAFE_PI_NEW_SESSION:-${PI_AGENT_NEW_SESSION:-true}}"
 
 usage() {
   cat <<EOF
@@ -37,9 +38,10 @@ Environment overrides (preferred):
   SAFE_PI_BIN                 Agent command binary inside VM (default: pi)
   SAFE_PI_NIX_FALLBACK_APP    nix app providing node+npx fallback (default: nixpkgs#nodejs)
   SAFE_PI_NPM_PACKAGE         npm package used when SAFE_PI_BIN is missing (default: @mariozechner/pi-coding-agent)
+  SAFE_PI_NEW_SESSION         prepend --new-session by default (default: true)
 
 Legacy aliases still supported:
-  PI_AGENT_VM_*, PI_AGENT_BIN, PI_AGENT_NIX_FALLBACK_APP, PI_AGENT_NPM_PACKAGE
+  PI_AGENT_VM_*, PI_AGENT_BIN, PI_AGENT_NIX_FALLBACK_APP, PI_AGENT_NPM_PACKAGE, PI_AGENT_NEW_SESSION
 EOF
 }
 
@@ -49,6 +51,13 @@ need_cmd() {
     echo "Missing required command: $cmd" >&2
     exit 1
   fi
+}
+
+is_true() {
+  case "${1:-}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 ensure_macos() {
@@ -150,14 +159,38 @@ cd "\$WORKSPACE"
 EOF
 }
 
+should_prepend_new_session() {
+  if ! is_true "$NEW_SESSION_DEFAULT"; then
+    return 1
+  fi
+
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --new-session|--session|--session=*|--session-id|--session-id=*|--resume|--resume=*|--continue|--continue=*|--no-new-session)
+        return 1
+        ;;
+    esac
+  done
+
+  return 0
+}
+
 build_agent_remote_cmd() {
   local agent_bin_q fallback_app_q npm_package_q args_q arg q
+  local -a effective_args=()
+
   printf -v agent_bin_q '%q' "$PI_BIN"
   printf -v fallback_app_q '%q' "$NIX_FALLBACK_APP"
   printf -v npm_package_q '%q' "$NPM_PACKAGE"
-  args_q=""
 
-  for arg in "$@"; do
+  if should_prepend_new_session "$@"; then
+    effective_args+=("--new-session")
+  fi
+  effective_args+=("$@")
+
+  args_q=""
+  for arg in "${effective_args[@]}"; do
     printf -v q '%q' "$arg"
     args_q+=" $q"
   done
@@ -193,31 +226,49 @@ EOF
 restore_host_tty() {
   local tty_state="${1:-}"
 
-  if [[ -z "$tty_state" ]]; then
+  if [[ ! -t 0 ]] || [[ ! -t 1 ]]; then
     return
   fi
 
   # Restore line discipline and turn off common terminal private modes that
   # TUIs can leave enabled when the VM connection drops abruptly.
-  stty "$tty_state" < /dev/tty > /dev/tty 2>/dev/null \
-    || stty sane < /dev/tty > /dev/tty 2>/dev/null \
-    || true
-  printf '\033[0m\033[?25h\033[?1000l\033[?1002l\033[?1003l\033[?1005l\033[?1006l\033[?1015l\033[?2004l\033[>4;0m' > /dev/tty 2>/dev/null || true
+  if [[ -n "$tty_state" ]]; then
+    stty "$tty_state" < /dev/tty > /dev/tty 2>/dev/null \
+      || stty sane < /dev/tty > /dev/tty 2>/dev/null \
+      || true
+  else
+    stty sane < /dev/tty > /dev/tty 2>/dev/null || true
+  fi
+
+  # Exit alternate screen, restore cursor/mouse/paste/keypad modes, and clear style.
+  printf '\033[0m\033[?25h\033[?1l\033>\033[?1049l\033[?47l\033[?1047l\033[?1000l\033[?1002l\033[?1003l\033[?1005l\033[?1006l\033[?1015l\033[?2004l\033[>4;0m' > /dev/tty 2>/dev/null || true
 }
 
 run_with_tty_guard() {
   local tty_state=""
   local rc=0
+  local restored=0
+
+  _restore_once() {
+    if [[ "$restored" -eq 1 ]]; then
+      return
+    fi
+    restored=1
+    restore_host_tty "$tty_state"
+  }
 
   if [[ -t 0 ]] && [[ -t 1 ]] && command -v stty >/dev/null 2>&1; then
     tty_state="$(stty -g < /dev/tty 2>/dev/null || true)"
   fi
 
+  trap '_restore_once' EXIT HUP INT TERM
+
   if ! "$@"; then
     rc=$?
   fi
 
-  restore_host_tty "$tty_state"
+  _restore_once
+  trap - EXIT HUP INT TERM
   return "$rc"
 }
 

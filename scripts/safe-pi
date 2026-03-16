@@ -23,4 +23,25 @@ fi
 
 # Host wrapper command: safe-pi
 # VM command executed: pi
-exec "$VM_WRAPPER" run "$@"
+#
+# Wrapper-only convenience flags:
+#   --resume   Do not auto-prepend --new-session for this invocation.
+resume=0
+forwarded_args=()
+
+for arg in "$@"; do
+  case "$arg" in
+    --resume)
+      resume=1
+      ;;
+    *)
+      forwarded_args+=("$arg")
+      ;;
+  esac
+done
+
+if [[ "$resume" -eq 1 ]]; then
+  exec env SAFE_PI_NEW_SESSION=false "$VM_WRAPPER" run "${forwarded_args[@]}"
+fi
+
+exec "$VM_WRAPPER" run "${forwarded_args[@]}"
