@@ -5,3 +5,8 @@ dist/
 .tdarlm/
 orient.md
 task-tree.md
+
+# Local AI assistant/editor state
+.claude/
+.cursor/
+.aider*
