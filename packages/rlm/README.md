@@ -94,7 +94,6 @@ Seeds live in `~/.tdarlm/strategies/`. The default seed includes phased guidance
 ## References
 
 - Zhang, Kraska & Khattab (2025). *Recursive Language Models*. arXiv:2512.24601.
-- Shinn et al. (2023). *Reflexion: Language Agents with Verbal Reinforcement Learning*. NeurIPS 2023.
 
 ## License
 
