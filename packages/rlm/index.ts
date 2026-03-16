@@ -237,15 +237,11 @@ export default function rlmExtension(pi: ExtensionAPI) {
         ctx.ui.notify(result.message, result.created ? "info" : "warning");
       }
 
-      if (result.created) {
+      if (result.created && ctx.hasUI) {
         const enabled = await isModeEnabled(ctx.cwd);
-        const modeHint = enabled ? "" : " RLM mode is currently OFF; run /rlm-on to activate it.";
-
-        pi.sendUserMessage(
-          `RLM initialized for session "${result.sessionId}" with seed "${result.seedUsed}". ` +
-            `Read the strategy at .tdarlm/sessions/${result.sessionId}/strategy.md and follow it.` +
-            modeHint,
-        );
+        if (!enabled) {
+          ctx.ui.notify("RLM mode is currently OFF; run /rlm-on to activate it.", "warning");
+        }
       }
 
       await refreshRlmUi(ctx);
@@ -344,11 +340,6 @@ export default function rlmExtension(pi: ExtensionAPI) {
 
       await writeLoopState(ctx.cwd, sessionId, { enabled: true, remaining, max, iteration: 0 });
       await refreshRlmUi(ctx);
-
-      pi.sendUserMessage(
-        "Continue. Review the current strategy and state, then execute the next step. When you are done, write loop.json with enabled:false to stop.",
-        { deliverAs: "followUp" },
-      );
     },
   });
 

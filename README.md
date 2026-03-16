@@ -10,8 +10,7 @@ Focused repo for two components only:
 ### 1) Link the `rlm` extension into `~/.pi`
 
 ```bash
-mkdir -p ~/.pi/agent/extensions
-ln -snf "$PWD/extensions/rlm" ~/.pi/agent/extensions/rlm
+make install
 ```
 
 ### 2) Install `safe-pi` into `~/.local/bin`
@@ -42,6 +41,15 @@ safe-pi --model gpt-5
 
 By default, `safe-pi` prepends `--new-session` unless you pass an explicit session/resume flag.
 
+Runtime behavior inside VM:
+
+- Host project dir is mounted read/write at `/workspace`
+- Host `~/.pi` is mounted read/write at `/home/agent/.pi`
+- `shell` starts in `/workspace`
+- `run` checks for `/workspace/flake.nix`:
+  - if present: `nix develop /workspace --command pi ...`
+  - otherwise: run `pi` directly from `/workspace`
+
 For direct VM lifecycle control:
 
 ```bash
@@ -51,6 +59,8 @@ For direct VM lifecycle control:
 ./scripts/safe-pi-vm.sh destroy
 ./scripts/safe-pi-vm.sh status
 ```
+
+To reset to a fresh disposable VM, run `destroy` and then `up` (or just run `safe-pi` again).
 
 ## Repo layout
 

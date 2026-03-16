@@ -3,13 +3,33 @@ SHELL := /usr/bin/env bash
 LOCAL_BIN ?= $(HOME)/.local/bin
 SAFE_PI_LINK ?= $(LOCAL_BIN)/safe-pi
 
-.PHONY: help install-safe-pi vm-up vm-shell vm-run vm-stop vm-destroy vm-status test-rlm
+PI_EXTENSIONS_DIR ?= $(HOME)/.pi/agent/extensions
+RLM_EXT_SOURCE ?= $(PWD)/extensions/rlm
+RLM_PI_LINK ?= $(PI_EXTENSIONS_DIR)/rlm
+
+.PHONY: help install install-rlm install-safe-pi vm-up vm-shell vm-run vm-stop vm-destroy vm-status test-rlm
 
 help:
 	@echo "Targets:"
+	@echo "  make install                  # symlink rlm to ~/.pi/agent/extensions/rlm"
 	@echo "  make install-safe-pi          # symlink scripts/safe-pi to ~/.local/bin/safe-pi"
 	@echo "  make vm-up|vm-shell|vm-run|vm-stop|vm-destroy|vm-status"
 	@echo "  make test-rlm                 # run packages/rlm tests"
+
+install: install-rlm
+
+install-rlm:
+	@mkdir -p "$(PI_EXTENSIONS_DIR)"
+	@if [ -d "$(RLM_PI_LINK)" ] && [ ! -L "$(RLM_PI_LINK)" ]; then \
+		echo "Refusing to overwrite directory: $(RLM_PI_LINK)"; \
+		exit 1; \
+	fi
+	@if [ -L "$(RLM_PI_LINK)" ] && [ "$$(readlink "$(RLM_PI_LINK)")" = "$(RLM_EXT_SOURCE)" ]; then \
+		echo "rlm already installed -> $(RLM_PI_LINK)"; \
+	else \
+		ln -snf "$(RLM_EXT_SOURCE)" "$(RLM_PI_LINK)"; \
+		echo "Installed rlm -> $(RLM_PI_LINK)"; \
+	fi
 
 install-safe-pi:
 	@mkdir -p "$(LOCAL_BIN)"
