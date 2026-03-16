@@ -1,38 +1,39 @@
 SHELL := /usr/bin/env bash
 
-PRUNE_UNSELECTED ?= false
-REPLACE_TOP_LEVEL_LINKS ?= false
-OVERWRITE_FOREIGN_LINKS ?= false
+LOCAL_BIN ?= $(HOME)/.local/bin
+SAFE_PI_LINK ?= $(LOCAL_BIN)/safe-pi
 
-.PHONY: help configure install bootstrap status
+.PHONY: help install-safe-pi vm-up vm-shell vm-run vm-stop vm-destroy vm-status test-rlm
 
 help:
 	@echo "Targets:"
-	@echo "  make configure SKILLS=\"...\" EXTENSIONS=\"...\""
-	@echo "  make install [PRUNE_UNSELECTED=false] [REPLACE_TOP_LEVEL_LINKS=false] [OVERWRITE_FOREIGN_LINKS=false]"
-	@echo "  make bootstrap   # checks required tools, creates defaults, runs install"
-	@echo "  make status"
+	@echo "  make install-safe-pi          # symlink scripts/safe-pi to ~/.local/bin/safe-pi"
+	@echo "  make vm-up|vm-shell|vm-run|vm-stop|vm-destroy|vm-status"
+	@echo "  make test-rlm                 # run packages/rlm tests"
 
-configure:
-	@./scripts/configure-pi-agent.sh
+install-safe-pi:
+	@mkdir -p "$(LOCAL_BIN)"
+	@ln -snf "$(PWD)/scripts/safe-pi" "$(SAFE_PI_LINK)"
+	@chmod +x "$(PWD)/scripts/safe-pi" "$(PWD)/scripts/safe-pi-vm.sh"
+	@echo "Installed safe-pi -> $(SAFE_PI_LINK)"
 
-install:
-	@PI_AGENT_PRUNE_UNSELECTED="$(PRUNE_UNSELECTED)" \
-	 PI_AGENT_REPLACE_TOP_LEVEL_LINKS="$(REPLACE_TOP_LEVEL_LINKS)" \
-	 PI_AGENT_OVERWRITE_FOREIGN_LINKS="$(OVERWRITE_FOREIGN_LINKS)" \
-	 ./scripts/install-pi-agent.sh
+vm-up:
+	@./scripts/safe-pi-vm.sh up
 
-bootstrap:
-	@PI_AGENT_PRUNE_UNSELECTED="$(PRUNE_UNSELECTED)" \
-	 PI_AGENT_REPLACE_TOP_LEVEL_LINKS="$(REPLACE_TOP_LEVEL_LINKS)" \
-	 PI_AGENT_OVERWRITE_FOREIGN_LINKS="$(OVERWRITE_FOREIGN_LINKS)" \
-	 ./scripts/bootstrap-pi-agent.sh
+vm-shell:
+	@./scripts/safe-pi-vm.sh shell
 
-status:
-	@echo "Config file: $${PI_AGENT_CONFIG:-$(PWD)/.pi-agent-selection.mk}"
-	@if [[ -f "$${PI_AGENT_CONFIG:-.pi-agent-selection.mk}" ]]; then cat "$${PI_AGENT_CONFIG:-.pi-agent-selection.mk}"; else echo "(missing; defaults to all)"; fi
-	@echo
-	@echo "~/.pi/agent/skills:"; ls -la "$${PI_AGENT_DIR:-$$HOME/.pi/agent}/skills" 2>/dev/null || true
-	@echo
-	@echo "~/.pi/agent/extensions:"; ls -la "$${PI_AGENT_DIR:-$$HOME/.pi/agent}/extensions" 2>/dev/null || true
+vm-run:
+	@./scripts/safe-pi-vm.sh run
 
+vm-stop:
+	@./scripts/safe-pi-vm.sh stop
+
+vm-destroy:
+	@./scripts/safe-pi-vm.sh destroy
+
+vm-status:
+	@./scripts/safe-pi-vm.sh status
+
+test-rlm:
+	npm test -w packages/rlm
